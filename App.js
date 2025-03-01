@@ -1,21 +1,33 @@
-import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'react-native';
+import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
+import { NavigationContainer } from '@react-navigation/native';
+import AOnBoarding from './components/OnBoarding/1OnBoarding';
+import BOnBoarding from './components/OnBoarding/2OnBoarding';
+import LoginScreen from './components/Login_SignUp/LoginScreen';
+import LinearGradient from "react-native-linear-gradient";
+
+
+const Stack = createStackNavigator();
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      {/* Hide Status Bar (Top Notch Area) */}
+      <StatusBar />
+
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+          cardStyleInterpolator: CardStyleInterpolators.forHorizontalIOS, // Smooth slide animation
+        }}
+      >
+        <Stack.Screen name="AOnBoarding" component={AOnBoarding} />
+        <Stack.Screen name="BOnBoarding" component={BOnBoarding} />
+        <Stack.Screen name="LoginScreen" component={LoginScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
