@@ -2,6 +2,9 @@
 // controllers/budgetController.js
 const { BudgetCategory, BudgetAllocation, Transaction, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const { User, FamilyMember } = require('../models');
+const { generateBudgetRecommendations } = require('../services/budgetRecommendationService');
+
 
 // Create default categories for a new user
 const createDefaultCategories = async (userId) => {
@@ -385,10 +388,136 @@ const getDashboardData = async (req, res) => {
   }
 };
 
+
+// Initialize budget with AI recommendations
+const initializeBudget = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const userId = req.user.user_id;
+    const { monthly_income } = req.body;
+    
+    if (!monthly_income || isNaN(parseFloat(monthly_income)) || parseFloat(monthly_income) <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Valid monthly income is required'
+      });
+    }
+    
+    // Get user data
+    const user = await User.findByPk(userId, {
+      transaction
+    });
+    
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Get family members
+    const familyMembers = await FamilyMember.findAll({
+      where: { user_id: userId },
+      transaction
+    });
+    
+    // Generate budget recommendations
+    const budgetRecommendations = await generateBudgetRecommendations(
+      user,
+      familyMembers,
+      parseFloat(monthly_income)
+    );
+    
+    // Create budget categories and allocations
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    
+    // Create categories and their allocations
+    const categoryPromises = Object.entries(budgetRecommendations).map(async ([categoryName, amount]) => {
+      // Create or find category
+      let category = await BudgetCategory.findOne({
+        where: {
+          user_id: userId,
+          category_name: categoryName,
+          is_active: true
+        },
+        transaction
+      });
+      
+      if (!category) {
+        category = await BudgetCategory.create({
+          user_id: userId,
+          category_name: categoryName,
+          is_expense: true,
+          is_active: true
+        }, { transaction });
+      }
+      
+      // Create budget allocation
+      await BudgetAllocation.create({
+        user_id: userId,
+        category_id: category.category_id,
+        amount: amount,
+        start_date: startOfMonth,
+        end_date: endOfMonth
+      }, { transaction });
+      
+      return {
+        category_id: category.category_id,
+        category_name: category.category_name,
+        allocated_amount: amount
+      };
+    });
+    
+    const categories = await Promise.all(categoryPromises);
+    
+    // Also create a default income category
+    const incomeCategory = await BudgetCategory.findOne({
+      where: {
+        user_id: userId,
+        category_name: 'Salary',
+        is_expense: false
+      },
+      transaction
+    }) || await BudgetCategory.create({
+      user_id: userId,
+      category_name: 'Salary',
+      is_expense: false,
+      is_active: true
+    }, { transaction });
+    
+    await transaction.commit();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Budget initialized successfully',
+      data: {
+        monthly_income: parseFloat(monthly_income),
+        expense_categories: categories
+      }
+    });
+    
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Budget initialization error:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during budget initialization',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createDefaultCategories,
   getCategories,
   createCategory,
   updateBudgetAllocation,
-  getDashboardData
+  getDashboardData,
+  initializeBudget
 };

@@ -44,6 +44,10 @@ const User = sequelize.define('User', {
   pincode: {
     type: DataTypes.STRING(10)
   },
+  monthly_income: { 
+    type: DataTypes.FLOAT,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

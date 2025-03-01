@@ -720,3 +720,43 @@ exports.getTransactionHistory = async (req, res) => {
     });
   }
 };
+
+const getWalletBalance = async (req, res) => {
+  try {
+    // Retrieve the user_id from request params or query (depending on your API design)
+    const { user_id } = req.params;
+
+    // Find the wallet by user_id
+    const wallet = await DemoWallet.findOne({
+      where: { user_id: user_id },
+    });
+
+    // If the wallet is not found, send an error response
+    if (!wallet) {
+      return res.status(404).json({ message: 'Wallet not found for the given user.' });
+    }
+
+    // Send the wallet balance as a response
+    return res.status(200).json({
+      wallet_balance: wallet.wallet_balance,
+    });
+  } catch (error) {
+    console.error('Error fetching wallet balance:', error);
+    return res.status(500).json({ message: 'Server error, please try again later.' });
+  }
+};
+
+// Export functions for external usage
+module.exports = {
+  sendOTP,
+  verifyOTP,
+  savePersonalInfo,
+  createWalletId,
+  setWalletPin,
+  getWalletDetails,
+  transferMoney,
+  topUpWallet,
+  withdrawMoney,
+  getTransactionHistory,
+  getWalletBalance
+};
