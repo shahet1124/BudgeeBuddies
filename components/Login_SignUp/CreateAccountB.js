@@ -12,21 +12,29 @@ import {
    Keyboard,
    ScrollView,
    Dimensions,
+   Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
+import { useRoute } from '@react-navigation/native';
+import axios from 'axios'; // Import axios for API calls
 import { useNavigation } from '@react-navigation/native';
 const { width, height } = Dimensions.get('window');
 
-export default function CreateAccountScreen() {
+export default function CreateAccountScreen({ }) {
    const navigation = useNavigation();
    const [income, setIncome] = useState('');
    const [numFamilyMembers, setNumFamilyMembers] = useState('1');
    const [familyMembers, setFamilyMembers] = useState([]);
    const [showDatePicker, setShowDatePicker] = useState(false);
    const [currentDatePickerIndex, setCurrentDatePickerIndex] = useState(0);
+   const [isLoading, setIsLoading] = useState(false); // Add loading state for API calls
+
+   const route = useRoute();
+   const userId = route.params?.userId;
+
+   console.log("Received User ID:", userId);
 
    // Gender options for dropdown
    const genderOptions = ['Male', 'Female', 'Other', 'Prefer not to say'];
@@ -86,13 +94,50 @@ export default function CreateAccountScreen() {
       setShowDatePicker(true);
    };
 
-   const handleNext = () => {
-      console.log('Form Data:', {
-         income,
-         familyMembers
-      });
-      navigation.navigate('CreateAccountC', { income2: income, numFamilyMembers2: numFamilyMembers });
+   const handleNext = async () => {
+      // Extract family members' gender and date of birth into a clean array
+      const familyMembersData = familyMembers.map((member, index) => ({
+         memberNumber: index + 1,
+         gender: member.gender || 'Not selected',
+         date_of_birth: member.dateOfBirth || 'Not selected'
+      }));
+
+      // Prepare data for API
+      const formData = {
+         user_id: userId, // Include the userId from route params
+         monthly_income: income,
+         family_members: familyMembersData
+      };
+
+      console.log('Sending to API:', JSON.stringify(formData, null, 2));
+
+      try {
+         setIsLoading(true);
+
+         // API call
+         const response = await axios.post('http://192.168.178.65:3000/api/users/register/final', formData);
+
+         console.log('API Response:', response.data);
+
+         // Navigate to the next screen and pass the API response data
+         navigation.navigate('CreateAccountC', {
+            income2: response.data.monthlyIncome, // Get from API response
+            numFamilyMembers2: response.data.familyMembers.length, // Get from API response
+            familyMembersData: JSON.stringify(response.data.familyMembers), // Send updated family members
+            userData: JSON.stringify(response.data), // Send user details from API response
+         });
+      } catch (error) {
+         console.error('API Error:', error);
+         Alert.alert(
+            'Error',
+            'Failed to save your information. Please try again.',
+            [{ text: 'OK' }]
+         );
+      } finally {
+         setIsLoading(false);
+      }
    };
+
 
    const formatDate = (dateString) => {
       if (!dateString) return 'DOB';
@@ -189,8 +234,14 @@ export default function CreateAccountScreen() {
                            </View>
                         ))}
 
-                        <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-                           <Text style={styles.nextButtonText}>Next</Text>
+                        <TouchableOpacity
+                           style={[styles.nextButton, isLoading && styles.disabledButton]}
+                           onPress={handleNext}
+                           disabled={isLoading}
+                        >
+                           <Text style={styles.nextButtonText}>
+                              {isLoading ? 'Saving...' : 'Next'}
+                           </Text>
                         </TouchableOpacity>
                      </View>
                   </View>

@@ -12,20 +12,21 @@ import {
    Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import axios from "axios";
+import { useNavigation } from '@react-navigation/native';
+
 
 export default function BudgetForm({ route }) {
-   const { income2, numFamilyMembers2 } = route.params;
+   const { income2, numFamilyMembers2, userData } = route.params;
+   console.log(userData);
    // Form state
    const [income, setIncome] = useState(income2);
    const [familyMembers, setFamilyMembers] = useState(numFamilyMembers2);
+   const navigation = useNavigation();
 
    // Expenses categories
    const [categories, setCategories] = useState([
       { id: '1', name: 'Food', amount: '20000' },
-      { id: '2', name: 'Travel', amount: '20000' },
-      { id: '3', name: 'Bills', amount: '20000' },
-      { id: '4', name: 'Health Care', amount: '20000' },
-      { id: '5', name: 'Savings', amount: '20000' }
    ]);
 
    // Editing state
@@ -163,32 +164,52 @@ export default function BudgetForm({ route }) {
       return isValid;
    };
 
-   // Handle form submission
-   const handleSubmit = () => {
-      if (validateForm()) {
-         // Form is valid, show success message
-         Alert.alert(
-            "Budget Saved",
-            "Your budget has been saved successfully!",
-            [{ text: "OK" }]
-         );
 
-         // Here you would typically send the data to your backend
-         console.log({
-            income: parseFloat(income),
-            familyMembers: parseInt(familyMembers),
-            categories: categories.map(category => ({
-               name: category.name,
-               amount: parseFloat(category.amount) || 0
-            }))
-         });
+   const handleSubmit = async () => {
+      navigation.navigate("LoginScreen")
+      if (validateForm()) {
+         const requestData = {
+            userData: {
+               user_id: userData.user_id,
+               full_name: userData.full_name,
+               gender: userData.gender || "Not specified",
+               date_of_birth: userData.date_of_birth,
+               city: userData.city,
+               state: userData.state || "Unknown",
+               pincode: userData.pincode
+            },
+            familyMembers: Array.isArray(familyMembers)
+               ? familyMembers.map(member => ({
+                  gender: member.gender || "Not specified",
+                  date_of_birth: member.date_of_birth || "Unknown",
+                  relationship: member.relationship || "Not specified"
+               }))
+               : [],
+            monthlyIncome: parseFloat(income)
+         };
+
+         console.log("Sending data:", JSON.stringify(requestData, null, 2));
+
+         try {
+            const response = await axios.post(
+               "http://192.168.178.65:3000/generate/budget", // Corrected endpoint name
+               requestData,
+               {
+                  headers: {
+                     "Content-Type": "application/json"
+                  }
+               }
+            );
+
+            console.log("Response:", response.data);
+            setCategories(response.data.categories || []); // Update categories from response
+            Alert.alert("Budget Generated", "Your budget has been successfully generated.");
+         } catch (error) {
+            console.error("Error:", error.response?.data || error.message);
+            Alert.alert("Error", error.response?.data?.message || "Something went wrong.");
+         }
       } else {
-         // Form has errors
-         Alert.alert(
-            "Validation Error",
-            "Please fix the errors in the form",
-            [{ text: "OK" }]
-         );
+         // Alert.alert("Validation Error", "Please fix the errors in the form.");
       }
    };
 
@@ -314,8 +335,225 @@ export default function BudgetForm({ route }) {
    );
 }
 
+// import React, { useState, useEffect } from 'react';
+// import {
+//    StyleSheet,
+//    Text,
+//    View,
+//    TextInput,
+//    TouchableOpacity,
+//    SafeAreaView,
+//    StatusBar,
+//    ScrollView,
+//    Alert,
+//    Modal
+// } from 'react-native';
+// import { Ionicons } from '@expo/vector-icons';
+// import axios from "axios";
+
+// export default function BudgetForm({ route }) {
+//    const { userData } = route.params;
+
+//    const [income, setIncome] = useState('');
+//    const [familyMembers, setFamilyMembers] = useState([]);
+//    const [categories, setCategories] = useState([]);
+//    const [editModalVisible, setEditModalVisible] = useState(false);
+//    const [currentCategory, setCurrentCategory] = useState(null);
+//    const [newCategoryName, setNewCategoryName] = useState('');
+//    const [errors, setErrors] = useState({});
+//    const [totalExpenses, setTotalExpenses] = useState(0);
+
+//    useEffect(() => {
+//       fetchBudgetData();
+//    }, []);
+
+//    const fetchBudgetData = async () => {
+//       try {
+//          const response = await axios.post(
+//             'http://192.168.178.65:3000/api/users/generate-budget',
+//             { user_id: userData.user_id }
+//          );
+//          setCategories(response.data.categories || []);
+//          setIncome(response.data.monthlyIncome || '');
+//          setFamilyMembers(response.data.familyMembers || []);
+//       } catch (error) {
+//          console.error("Error fetching budget data:", error);
+//          Alert.alert("Error", "Failed to load budget data.");
+//       }
+//    };
+
+//    useEffect(() => {
+//       const total = categories.reduce((sum, category) => sum + (parseFloat(category.amount) || 0), 0);
+//       setTotalExpenses(total);
+//    }, [categories]);
+
+//    const handleAmountChange = (id, amount) => {
+//       if (amount === '' || /^\d+$/.test(amount)) {
+//          setCategories(categories.map(category =>
+//             category.id === id ? { ...category, amount } : category
+//          ));
+//          if (errors[id]) {
+//             setErrors(prev => ({ ...prev, [id]: null }));
+//          }
+//       }
+//    };
+
+//    const openEditModal = (category) => {
+//       setCurrentCategory(category);
+//       setNewCategoryName(category.name);
+//       setEditModalVisible(true);
+//    };
+
+//    const saveCategoryName = () => {
+//       if (newCategoryName.trim() === '') {
+//          Alert.alert('Error', 'Category name cannot be empty');
+//          return;
+//       }
+//       setCategories(categories.map(category =>
+//          category.id === currentCategory.id ? { ...category, name: newCategoryName } : category
+//       ));
+//       setEditModalVisible(false);
+//    };
+
+//    const deleteCategory = (id) => {
+//       Alert.alert("Confirm Delete", "Are you sure you want to delete this category?", [
+//          { text: "Cancel", style: "cancel" },
+//          {
+//             text: "Delete",
+//             onPress: () => setCategories(categories.filter(category => category.id !== id)),
+//             style: "destructive",
+//          },
+//       ]);
+//    };
+
+//    const addNewCategory = () => {
+//       const newId = (Math.max(...categories.map(c => parseInt(c.id)), 0) + 1).toString();
+//       setCategories([...categories, { id: newId, name: "New Category", amount: "0" }]);
+//    };
+
+//    const validateForm = () => {
+//       let newErrors = {};
+//       let isValid = true;
+
+//       if (!income) {
+//          newErrors.income = "Income is required";
+//          isValid = false;
+//       } else if (parseFloat(income) <= 0) {
+//          newErrors.income = "Income must be greater than 0";
+//          isValid = false;
+//       }
+
+//       if (totalExpenses > parseFloat(income)) {
+//          newErrors.totalExpenses = "Total expenses cannot exceed income";
+//          isValid = false;
+//       }
+
+//       setErrors(newErrors);
+//       return isValid;
+//    };
+
+//    const handleSubmit = async () => {
+//       if (validateForm()) {
+//          const requestData = {
+//             user_id: userData.user_id,
+//             categories,
+//             monthlyIncome: parseFloat(income)
+//          };
+
+//          console.log("Submitting Data:", JSON.stringify(requestData, null, 2));
+
+//          try {
+//             const response = await axios.post(
+//                "http://192.168.178.65:3000/api/users/update-budget",
+//                requestData,
+//                { headers: { "Content-Type": "application/json" } }
+//             );
+
+//             console.log("Response:", response.data);
+//             Alert.alert("Success", "Budget updated successfully.");
+//          } catch (error) {
+//             console.error("Error:", error.response?.data || error.message);
+//             Alert.alert("Error", error.response?.data?.message || "Something went wrong.");
+//          }
+//       } else {
+//          Alert.alert("Validation Error", "Please fix the errors in the form.");
+//       }
+//    };
+
+//    return (
+//       <SafeAreaView style={styles.container}>
+//          <StatusBar backgroundColor="#00c38d" />
+//          <View style={styles.header}>
+//             <Text style={styles.headerText}>Approximate Budget</Text>
+//          </View>
+
+//          <ScrollView style={styles.formContainer}>
+//             <View style={styles.formContent}>
+//                <View style={styles.inputGroup}>
+//                   <Text style={styles.label}>Income Per Month</Text>
+//                   <Text>{income}</Text>
+//                   {errors.income && <Text style={styles.errorText}>{errors.income}</Text>}
+//                </View>
+
+//                <View style={styles.inputGroup}>
+//                   <Text style={styles.label}>Number of Family Members</Text>
+//                   <Text>{familyMembers.length}</Text>
+//                </View>
+
+//                <View style={styles.expensesSection}>
+//                   <Text style={styles.expensesHeader}>Expected Expense</Text>
+
+//                   {categories.map(category => (
+//                      <View key={category.id} style={styles.expenseItem}>
+//                         <Text style={styles.expenseLabel}>{category.name}</Text>
+//                         <View style={styles.expenseInputContainer}>
+//                            <TextInput
+//                               style={[styles.expenseInput, errors[category.id] && styles.inputError]}
+//                               value={category.amount}
+//                               onChangeText={(text) => handleAmountChange(category.id, text)}
+//                               keyboardType="numeric"
+//                               placeholder="0"
+//                            />
+//                            <View style={styles.expenseActions}>
+//                               <TouchableOpacity onPress={() => openEditModal(category)} style={styles.iconButton}>
+//                                  <Ionicons name="pencil-outline" size={18} color="#333" />
+//                               </TouchableOpacity>
+//                               <TouchableOpacity onPress={() => deleteCategory(category.id)} style={styles.iconButton}>
+//                                  <Ionicons name="trash-outline" size={18} color="#333" />
+//                               </TouchableOpacity>
+//                            </View>
+//                         </View>
+//                      </View>
+//                   ))}
+
+//                   <TouchableOpacity style={styles.addCategoryButton} onPress={addNewCategory}>
+//                      <Ionicons name="add-circle-outline" size={20} color="#00c38d" />
+//                      <Text style={styles.addCategoryText}>Add Category</Text>
+//                   </TouchableOpacity>
+
+//                   {errors.totalExpenses && <Text style={styles.errorText}>{errors.totalExpenses}</Text>}
+//                </View>
+
+//                <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+//                   <Text style={styles.submitButtonText}>Done</Text>
+//                </TouchableOpacity>
+//             </View>
+//          </ScrollView>
+
+//          <Modal animationType="slide" transparent={true} visible={editModalVisible}>
+//             <View style={styles.modalContainer}>
+//                <TextInput value={newCategoryName} onChangeText={setNewCategoryName} />
+//                <TouchableOpacity onPress={saveCategoryName}><Text>Save</Text></TouchableOpacity>
+//             </View>
+//          </Modal>
+//       </SafeAreaView>
+//    );
+// }
+
+
 const styles = StyleSheet.create({
    container: {
+      top: 20,
       flex: 1,
       backgroundColor: '#00c38d',
    },

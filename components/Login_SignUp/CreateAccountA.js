@@ -26,9 +26,10 @@ const { width, height } = Dimensions.get('window');
 export default function CreateAccountA() {
    const navigation = useNavigation();
    // Form state
-   const [fullName, setFullName] = useState('');
-   const [mobileNumber, setMobileNumber] = useState();
-   const [dateOfBirth, setDateOfBirth] = useState('');
+   const [full_name, setFullName] = useState('');
+   const [mobile_number, setMobileNumber] = useState();
+   const [email, setEmail] = useState(''); // Added email state
+   const [date_of_birth, setDateOfBirth] = useState('');
    const [address, setAddress] = useState('');
    const [city, setCity] = useState('');
    const [pincode, setPincode] = useState('');
@@ -43,9 +44,10 @@ export default function CreateAccountA() {
 
    // Validation state
    const [errors, setErrors] = useState({
-      fullName: '',
-      mobileNumber: '',
-      dateOfBirth: '',
+      full_name: '',
+      mobile_number: '',
+      email: '', // Added email error state
+      date_of_birth: '',
       address: '',
       city: '',
       pincode: '',
@@ -74,6 +76,18 @@ export default function CreateAccountA() {
          return 'Mobile number is required';
       } else if (!mobileRegex.test(cleanedNumber)) {
          return 'Please enter a valid 10-digit mobile number';
+      }
+      return '';
+   };
+
+   // Email validation function
+   const validateEmail = (email) => {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!email.trim()) {
+         return 'Email is required';
+      } else if (!emailRegex.test(email)) {
+         return 'Please enter a valid email address';
       }
       return '';
    };
@@ -158,7 +172,7 @@ export default function CreateAccountA() {
       setShowDatePicker(false);
       if (selectedDate) {
          setDateOfBirth(selectedDate.toISOString().split('T')[0]);
-         validateField('dateOfBirth', selectedDate.toISOString().split('T')[0]);
+         validateField('date_of_birth', selectedDate.toISOString().split('T')[0]);
       }
    };
 
@@ -177,13 +191,16 @@ export default function CreateAccountA() {
       let errorMessage = '';
 
       switch (field) {
-         case 'fullName':
+         case 'full_name':
             errorMessage = validateFullName(value);
             break;
-         case 'mobileNumber':
+         case 'mobile_number':
             errorMessage = validateMobileNumber(value);
             break;
-         case 'dateOfBirth':
+         case 'email':
+            errorMessage = validateEmail(value);
+            break;
+         case 'date_of_birth':
             errorMessage = validateDateOfBirth(value);
             break;
          case 'address':
@@ -214,21 +231,22 @@ export default function CreateAccountA() {
    };
 
    const validateForm = () => {
-      const nameValid = validateField('fullName', fullName);
-      const mobileValid = validateField('mobileNumber', mobileNumber);
-      const dobValid = validateField('dateOfBirth', dateOfBirth);
+      const nameValid = validateField('full_name', full_name);
+      const mobileValid = validateField('mobile_number', mobile_number);
+      const emailValid = validateField('email', email);
+      const dobValid = validateField('date_of_birth', date_of_birth);
       const addressValid = validateField('address', address);
       const cityValid = validateField('city', city);
       const pincodeValid = validateField('pincode', pincode);
       const passwordValid = validateField('password', password);
       const confirmPasswordValid = validateField('confirmPassword', confirmPassword);
 
-      return nameValid && mobileValid && dobValid && addressValid &&
+      return nameValid && mobileValid && emailValid && dobValid && addressValid &&
          cityValid && pincodeValid && passwordValid && confirmPasswordValid;
    };
 
    const handleGetOTP = () => {
-      const mobileValid = validateField('mobileNumber', mobileNumber);
+      const mobileValid = validateField('mobile_number', mobile_number);
       if (mobileValid) {
          Alert.alert("OTP Sent", "A verification code has been sent to your mobile number.");
          // Here you would implement actual OTP sending functionality
@@ -239,9 +257,10 @@ export default function CreateAccountA() {
       if (validateForm()) {
          // Form is valid, proceed to API call
          const userData = {
-            fullName,
-            mobileNumber,
-            dateOfBirth,
+            full_name,
+            mobile_number,
+            email,
+            date_of_birth,
             address,
             city,
             pincode,
@@ -249,7 +268,7 @@ export default function CreateAccountA() {
          };
          console.log(userData);
          try {
-            const response = await axios.post('http://192.168.178.65:3000/api/users/register', userData, {
+            const response = await axios.post('http://192.168.178.65:3000/api/users/register/basic', userData, {
                headers: {
                   'Content-Type': 'application/json'
                }
@@ -259,8 +278,11 @@ export default function CreateAccountA() {
                Alert.alert("Success", "Account created successfully!");
                console.log("Server Response:", response.data);
 
-               // Navigate to the next screen
-               navigation.navigate('CreateAccountB');
+               const userId = response.data.userId; // Adjust this based on your API response structure
+               console.log("Extracted User ID:", userId);
+
+               // Navigate to the next screen with the user ID
+               navigation.navigate('CreateAccountB', { userId: userId });
             } else {
                Alert.alert("Error", "Something went wrong. Please try again.");
             }
@@ -301,54 +323,73 @@ export default function CreateAccountA() {
                      <View style={styles.inputContainer}>
                         <Text style={styles.inputLabel}>Full Name</Text>
                         <TextInput
-                           style={[styles.input, errors.fullName ? styles.inputError : null]}
+                           style={[styles.input, errors.full_name ? styles.inputError : null]}
                            placeholder="Example"
                            placeholderTextColor="#A7A7A7"
-                           value={fullName}
+                           value={full_name}
                            onChangeText={(text) => {
                               setFullName(text);
-                              if (errors.fullName) validateField('fullName', text);
+                              if (errors.full_name) validateField('full_name', text);
                            }}
-                           onBlur={() => validateField('fullName', fullName)}
+                           onBlur={() => validateField('full_name', full_name)}
                         />
-                        {errors.fullName ? <Text style={styles.errorText}>{errors.fullName}</Text> : null}
+                        {errors.full_name ? <Text style={styles.errorText}>{errors.full_name}</Text> : null}
                      </View>
 
                      {/* Mobile Number Input */}
                      <View style={styles.inputContainer}>
                         <Text style={styles.inputLabel}>Mobile Number</Text>
-                        <View style={[styles.phoneInputContainer, errors.mobileNumber ? styles.inputError : null]}>
+                        <View style={[styles.phoneInputContainer, errors.mobile_number ? styles.inputError : null]}>
                            <TextInput
                               style={styles.phoneInput}
                               placeholder="+ 91 XXXXX XXXXX"
                               placeholderTextColor="#A7A7A7"
-                              value={mobileNumber}
+                              value={mobile_number}
                               onChangeText={(text) => {
                                  setMobileNumber(text);
-                                 if (errors.mobileNumber) validateField('mobileNumber', text);
+                                 if (errors.mobile_number) validateField('mobile_number', text);
                               }}
                               keyboardType="phone-pad"
-                              onBlur={() => validateField('mobileNumber', mobileNumber)}
+                              onBlur={() => validateField('mobile_number', mobile_number)}
                            />
                            <TouchableOpacity style={styles.otpButton} onPress={handleGetOTP}>
                               <Text style={styles.otpButtonText}>Get OTP</Text>
                            </TouchableOpacity>
                         </View>
-                        {errors.mobileNumber ? <Text style={styles.errorText}>{errors.mobileNumber}</Text> : null}
+                        {errors.mobile_number ? <Text style={styles.errorText}>{errors.mobile_number}</Text> : null}
+                     </View>
+
+                     {/* Email Input */}
+                     <View style={styles.inputContainer}>
+                        <Text style={styles.inputLabel}>Email</Text>
+                        <TextInput
+                           style={[styles.input, errors.email ? styles.inputError : null]}
+                           placeholder="example@email.com"
+                           placeholderTextColor="#A7A7A7"
+                           value={email}
+                           onChangeText={(text) => {
+                              setEmail(text);
+                              if (errors.email) validateField('email', text);
+                           }}
+                           keyboardType="email-address"
+                           autoCapitalize="none"
+                           onBlur={() => validateField('email', email)}
+                        />
+                        {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
                      </View>
 
                      {/* Date of Birth Input */}
                      <View style={styles.inputContainer}>
                         <Text style={styles.inputLabel}>Date Of Birth</Text>
                         <TouchableOpacity
-                           style={[styles.input, errors.dateOfBirth ? styles.inputError : null]}
+                           style={[styles.input, errors.date_of_birth ? styles.inputError : null]}
                            onPress={openDatePicker}
                         >
-                           <Text style={[styles.dateText, dateOfBirth ? styles.activeInputText : null]}>
-                              {formatDate(dateOfBirth)}
+                           <Text style={[styles.dateText, date_of_birth ? styles.activeInputText : null]}>
+                              {formatDate(date_of_birth)}
                            </Text>
                         </TouchableOpacity>
-                        {errors.dateOfBirth ? <Text style={styles.errorText}>{errors.dateOfBirth}</Text> : null}
+                        {errors.date_of_birth ? <Text style={styles.errorText}>{errors.date_of_birth}</Text> : null}
                      </View>
 
                      {/* Address Input */}
@@ -495,7 +536,7 @@ export default function CreateAccountA() {
 
          {showDatePicker && (
             <DateTimePicker
-               value={dateOfBirth ? new Date(dateOfBirth) : new Date()}
+               value={date_of_birth ? new Date(date_of_birth) : new Date()}
                mode="date"
                display="default"
                onChange={handleDateChange}

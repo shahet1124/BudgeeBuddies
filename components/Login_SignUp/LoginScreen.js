@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function LoginScreen({ navigation }) {
    const [email, setEmail] = useState('');
@@ -53,6 +54,7 @@ export default function LoginScreen({ navigation }) {
       if (isEmailValid && isPasswordValid) {
          // Proceed with login
          console.log('Login successful');
+         navigation.navigate('Home')
          // Add your authentication logic here
       }
    };
