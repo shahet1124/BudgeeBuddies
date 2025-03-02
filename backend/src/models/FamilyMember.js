@@ -24,7 +24,8 @@ const FamilyMember = sequelize.define('FamilyMember', {
     type: DataTypes.DATEONLY
   },
   relationship: {
-    type: DataTypes.STRING(50)
+    type: DataTypes.STRING(50),
+    allowNull: true
   },
   created_at: {
     type: DataTypes.DATE,

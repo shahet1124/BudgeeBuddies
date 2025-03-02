@@ -39,7 +39,8 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING(50)
   },
   state: {
-    type: DataTypes.STRING(50)
+    type: DataTypes.STRING(50),
+    allowNull: true
   },
   pincode: {
     type: DataTypes.STRING(10)

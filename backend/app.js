@@ -18,9 +18,9 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/budget', budgetRoutes);
-app.use('api/wallet', walletRoutes)
+app.use('/api/wallet', walletRoutes)
 app.use('/api/category', categoryRoutes);
-app.use('api/transactions', transactionRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 
 // Health check route

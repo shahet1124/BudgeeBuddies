@@ -1,762 +1,283 @@
-// controllers/walletController.js
-const bcrypt = require('bcrypt');
-const { sequelize, User, DemoWallet, UserSecurity, WalletTransaction } = require('../models');
-const { verifyOTP, generateOTP } = require('../services/otpService');
+const { DemoWallet, WalletTransaction, User, KycDocument } = require('../models');
+const { Op } = require('sequelize');
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
-// Send OTP for wallet registration
-exports.sendOTP = async (req, res) => {
+// Check if wallet exists
+const checkWallet = async (req, res) => {
   try {
-    const { mobileNumber } = req.body;
-    
-    if (!mobileNumber) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Mobile number is required' 
-      });
-    }
-    
-    // Generate and send OTP
-    const otp = generateOTP(mobileNumber);
-    
-    // Check if user exists
-    const user = await User.findOne({ 
-      where: { mobile_number: mobileNumber }
-    });
-    
-    return res.status(200).json({
-      success: true,
-      message: 'OTP sent successfully',
-      isExistingUser: !!user
+    const wallet = await DemoWallet.findOne({ where: { user_id: req.user.user_id } });
+    return res.json({
+      hasWallet: !!wallet,
+      walletData: wallet || null,
     });
   } catch (error) {
-    console.error('Error sending OTP:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to send OTP' 
-    });
+    console.error('Error checking wallet:', error);
+    return res.status(500).json({ error: 'Failed to check wallet status' });
   }
 };
 
-// Verify OTP
-exports.verifyOTP = async (req, res) => {
+// Get wallet balance
+const getWalletBalance = async (req, res) => {
   try {
-    const { mobileNumber, otp } = req.body;
-    
-    if (!mobileNumber || !otp) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Mobile number and OTP are required' 
-      });
+    const wallet = await DemoWallet.findOne({ where: { user_id: req.user.user_id } });
+
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
     }
-    
-    // Verify OTP
-    const result = verifyOTP(mobileNumber, otp);
-    
-    if (!result.valid) {
-      return res.status(400).json({ 
-        success: false, 
-        message: result.message 
-      });
-    }
-    
-    // Find or create user
-    let user = await User.findOne({ where: { mobile_number: mobileNumber } });
-    
-    return res.status(200).json({
-      success: true,
-      message: 'OTP verified successfully',
-      userId: user ? user.user_id : null,
-      hasWallet: false, // Will be updated in the next registration step
-      isNewUser: !user
+
+    return res.json({
+      wallet_id: wallet.wallet_id,
+      wallet_id_name: wallet.wallet_id_name,
+      balance: wallet.wallet_balance,
+      is_verified: wallet.is_verified,
     });
   } catch (error) {
-    console.error('Error verifying OTP:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to verify OTP' 
-    });
+    console.error('Error fetching wallet balance:', error);
+    return res.status(500).json({ error: 'Failed to fetch wallet balance' });
   }
 };
 
-// Save personal information
-exports.savePersonalInfo = async (req, res) => {
+// Get transaction history
+const getTransactionHistory = async (req, res) => {
   try {
-    const { fullName, gender, dateOfBirth, address, city, pincode, mobileNumber } = req.body;
-    
-    // Validate required fields
-    if (!fullName || !gender || !dateOfBirth || !address || !city || !pincode) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'All personal details are required' 
-      });
+    const wallet = await DemoWallet.findOne({ where: { user_id: req.user.user_id } });
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
     }
-    
-    // Find or create user
-    let user = await User.findOne({ where: { mobile_number: mobileNumber } });
-    
-    if (user) {
-      // Update existing user
-      await User.update({
+
+    const transactions = await WalletTransaction.findAll({
+      where: {
+        [Op.or]: [
+          { sender_wallet_id: wallet.wallet_id },
+          { receiver_wallet_id: wallet.wallet_id },
+        ],
+      },
+      order: [['transaction_date', 'DESC']],
+      limit: req.query.limit ? parseInt(req.query.limit) : 20,
+      offset: req.query.offset ? parseInt(req.query.offset) : 0,
+    });
+
+    // Format transactions for response
+    const formattedTransactions = await Promise.all(
+      transactions.map(async (tx) => {
+        const isSender = tx.sender_wallet_id === wallet.wallet_id;
+
+        // Get other party's wallet details
+        const otherWalletId = isSender ? tx.receiver_wallet_id : tx.sender_wallet_id;
+        let otherWallet = null;
+        let otherUser = null;
+
+        if (otherWalletId) {
+          otherWallet = await DemoWallet.findByPk(otherWalletId);
+          if (otherWallet) {
+            otherUser = await User.findByPk(otherWallet.user_id, {
+              attributes: ['full_name'],
+            });
+          }
+        }
+
+        return {
+          transaction_id: tx.wallet_tx_id,
+          date: tx.transaction_date,
+          type: tx.transaction_type,
+          amount: tx.amount,
+          status: tx.status,
+          notes: tx.notes,
+          direction: isSender ? 'outgoing' : 'incoming',
+          otherParty: otherUser ? otherUser.full_name : 'Unknown',
+          otherWalletId: otherWallet ? otherWallet.wallet_id_name : null,
+        };
+      })
+    );
+
+    return res.json({
+      transactions: formattedTransactions,
+      total: await WalletTransaction.count({
+        where: {
+          [Op.or]: [
+            { sender_wallet_id: wallet.wallet_id },
+            { receiver_wallet_id: wallet.wallet_id },
+          ],
+        },
+      }),
+    });
+  } catch (error) {
+    console.error('Error fetching transaction history:', error);
+    return res.status(500).json({ error: 'Failed to fetch transaction history' });
+  }
+};
+
+// Wallet registration flow
+const initWalletRegistration = async (req, res) => {
+  try {
+    const existingWallet = await DemoWallet.findOne({ where: { user_id: req.user.user_id } });
+
+    if (existingWallet) {
+      return res.status(400).json({ error: 'User already has a wallet registered' });
+    }
+
+    return res.json({ message: 'Ready to start wallet registration' });
+  } catch (error) {
+    console.error('Error initiating wallet registration:', error);
+    return res.status(500).json({ error: 'Failed to initiate wallet registration' });
+  }
+};
+
+// Verify mobile number with OTP
+const verifyMobile = (req, res) => {
+  const { otp } = req.body;
+
+  // In a real system, you would validate the OTP
+  if (otp !== '123456') {
+    return res.status(400).json({ error: 'Invalid OTP' });
+  }
+
+  return res.json({ message: 'Mobile number verified successfully', verified: true });
+};
+
+// Update user profile details
+const updateProfile = async (req, res) => {
+  const { fullName, gender, dateOfBirth, address, city, pincode } = req.body;
+
+  try {
+    await User.update(
+      {
         full_name: fullName,
         gender,
         date_of_birth: dateOfBirth,
         address,
         city,
         pincode,
-        updated_at: new Date()
-      }, { 
-        where: { user_id: user.user_id } 
-      });
-    } else {
-      // Create new user with a temporary password
-      const tempPassword = Math.random().toString(36).substring(2, 10);
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
-      
-      user = await User.create({
-        full_name: fullName,
-        mobile_number: mobileNumber,
-        password_hash: passwordHash,
-        gender,
-        date_of_birth: dateOfBirth,
-        address,
-        city,
-        pincode
-      });
-    }
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Personal information saved successfully',
-      userId: user.user_id
-    });
+      },
+      { where: { user_id: req.user.user_id } }
+    );
+
+    return res.json({ message: 'Profile updated successfully' });
   } catch (error) {
-    console.error('Error saving personal info:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to save personal information' 
-    });
+    console.error('Error updating profile:', error);
+    return res.status(500).json({ error: 'Failed to update profile' });
   }
 };
 
-// Create wallet ID
-exports.createWalletId = async (req, res) => {
+// Set UPI ID
+const setUpiId = async (req, res) => {
+  const { upiId } = req.body;
+
   try {
-    const { userId, walletIdName } = req.body;
-    
-    if (!walletIdName) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Wallet ID name is required' 
-      });
-    }
-    
-    // Format wallet ID with domain
-    const formattedWalletId = `${walletIdName}@okbuddy`;
-    
-    // Check if wallet ID is available
+    const baseUpiId = upiId.replace(/@.*$/, '');
+    const walletIdName = `${baseUpiId}@okbuddy`;
+
     const existingWallet = await DemoWallet.findOne({
-      where: { wallet_id_name: formattedWalletId }
+      where: { wallet_id_name: walletIdName },
     });
-    
+
     if (existingWallet) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This wallet ID is already taken' 
-      });
+      return res.status(400).json({ error: 'This UPI ID is already taken' });
     }
-    
-    // Check if user already has a wallet
-    const userWallet = await DemoWallet.findOne({
-      where: { user_id: userId }
-    });
-    
-    if (userWallet) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User already has a wallet' 
-      });
-    }
-    
-    // Create new wallet
+
     const wallet = await DemoWallet.create({
-      user_id: userId,
-      wallet_id_name: formattedWalletId,
-      wallet_balance: 0.00,
-      is_verified: false
+      user_id: req.user.user_id,
+      wallet_id_name: walletIdName,
+      wallet_balance: 0.0,
+      is_verified: false,
     });
-    
-    return res.status(201).json({
-      success: true,
-      message: 'Wallet ID created successfully',
-      walletId: formattedWalletId,
-      walletDbId: wallet.wallet_id
+
+    return res.json({
+      message: 'UPI ID set successfully',
+      walletIdName,
+      wallet_id: wallet.wallet_id,
     });
   } catch (error) {
-    console.error('Error creating wallet ID:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to create wallet ID' 
-    });
+    console.error('Error setting UPI ID:', error);
+    return res.status(500).json({ error: 'Failed to set UPI ID' });
   }
 };
 
-// Set wallet PIN
-exports.setWalletPin = async (req, res) => {
+// Upload KYC documents
+const uploadKyc = async (req, res) => {
   try {
-    const { userId, pin } = req.body;
-    
-    if (!pin || pin.length !== 6 || !/^\d+$/.test(pin)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'PIN must be a 6-digit number' 
-      });
+    if (!req.files || !req.files.identity || !req.files.address || !req.files.selfie) {
+      return res.status(400).json({ error: 'All required documents must be uploaded' });
     }
-    
-    // Hash the PIN
-    const pinHash = await bcrypt.hash(pin, 10);
-    
-    // Check if user security record exists
-    let userSecurity = await UserSecurity.findOne({
-      where: { user_id: userId }
-    });
-    
-    if (userSecurity) {
-      // Update existing record
-      await UserSecurity.update({
-        security_pin: pinHash,
-        updated_at: new Date()
-      }, {
-        where: { user_id: userId }
+
+    const documentsToCreate = [];
+
+    // Process each document type
+    ['identity', 'address', 'selfie'].forEach((docType) => {
+      const file = req.files[docType][0];
+      documentsToCreate.push({
+        user_id: req.user.user_id,
+        document_type: docType,
+        document_name: file.originalname,
+        document_path: file.path,
+        is_verified: false,
       });
-    } else {
-      // Create new security record
-      await UserSecurity.create({
-        user_id: userId,
-        security_pin: pinHash
-      });
-    }
-    
-    // Mark wallet as verified
-    await DemoWallet.update({
-      is_verified: true,
-      updated_at: new Date()
-    }, {
-      where: { user_id: userId }
     });
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Wallet PIN set successfully'
-    });
+
+    // Bulk create document records
+    await KycDocument.bulkCreate(documentsToCreate);
+
+    return res.json({ message: 'KYC documents uploaded successfully' });
   } catch (error) {
-    console.error('Error setting wallet PIN:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to set wallet PIN' 
-    });
+    console.error('Error uploading KYC documents:', error);
+    return res.status(500).json({ error: 'Failed to upload KYC documents' });
   }
 };
 
-// Get wallet details
-exports.getWalletDetails = async (req, res) => {
+// Finalize wallet setup
+const finalizeWalletSetup = async (req, res) => {
   try {
-    const userId = req.user.id; // Assuming middleware sets req.user
-    
-    const wallet = await DemoWallet.findOne({
-      where: { user_id: userId }
-    });
-    
+    const wallet = await DemoWallet.findOne({ where: { user_id: req.user.user_id } });
+
     if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
+      return res.status(404).json({ error: 'Wallet not found' });
     }
-    
-    // Check if wallet is verified
-    if (!wallet.is_verified) {
-      return res.status(403).json({
-        success: false,
-        message: 'Wallet registration is incomplete',
-        walletId: wallet.wallet_id_name
-      });
-    }
-    
-    return res.status(200).json({
-      success: true,
-      wallet: {
-        walletId: wallet.wallet_id_name,
-        balance: wallet.wallet_balance,
-        isVerified: wallet.is_verified
-      }
-    });
-  } catch (error) {
-    console.error('Error getting wallet details:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get wallet details' 
-    });
-  }
-};
 
-// Transfer money
-exports.transferMoney = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  
-  try {
-    const userId = req.user.id;
-    const { recipientIdentifier, amount, notes, pin } = req.body;
-    
-    if (!recipientIdentifier || !amount || !pin) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Recipient, amount and PIN are required' 
-      });
-    }
-    
-    // Validate amount
-    if (amount <= 0) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Amount must be greater than zero' 
-      });
-    }
-    
-    // Verify PIN
-    const userSecurity = await UserSecurity.findOne({
-      where: { user_id: userId }
-    });
-    
-    if (!userSecurity || !userSecurity.security_pin) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Security PIN not set' 
-      });
-    }
-    
-    const isPinValid = await bcrypt.compare(pin, userSecurity.security_pin);
-    
-    if (!isPinValid) {
-      await transaction.rollback();
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid PIN' 
-      });
-    }
-    
-    // Get sender's wallet
-    const senderWallet = await DemoWallet.findOne({
-      where: { user_id: userId },
-      transaction
-    });
-    
-    if (!senderWallet) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Sender wallet not found' 
-      });
-    }
-    
-    // Check sufficient balance
-    if (parseFloat(senderWallet.wallet_balance) < parseFloat(amount)) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Insufficient balance' 
-      });
-    }
-    
-    // Find recipient wallet
-    let recipientWallet;
-    
-    // Check if identifier is a mobile number
-    if (/^\d{10}$/.test(recipientIdentifier)) {
-      const recipientUser = await User.findOne({
-        where: { mobile_number: recipientIdentifier },
-        transaction
-      });
-      
-      if (recipientUser) {
-        recipientWallet = await DemoWallet.findOne({
-          where: { user_id: recipientUser.user_id },
-          transaction
-        });
-      }
-    } else {
-      // Check if identifier is a wallet ID
-      recipientWallet = await DemoWallet.findOne({
-        where: { wallet_id_name: recipientIdentifier },
-        transaction
-      });
-    }
-    
-    if (!recipientWallet) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Recipient wallet not found' 
-      });
-    }
-    
-    // Check if sending to self
-    if (senderWallet.wallet_id === recipientWallet.wallet_id) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Cannot transfer to your own wallet' 
-      });
-    }
-    
-    // Update sender's balance
-    await DemoWallet.update({
-      wallet_balance: sequelize.literal(`wallet_balance - ${amount}`),
-      updated_at: new Date()
-    }, {
-      where: { wallet_id: senderWallet.wallet_id },
-      transaction
-    });
-    
-    // Update recipient's balance
-    await DemoWallet.update({
-      wallet_balance: sequelize.literal(`wallet_balance + ${amount}`),
-      updated_at: new Date()
-    }, {
-      where: { wallet_id: recipientWallet.wallet_id },
-      transaction
-    });
-    
-    // Create transaction record
-    await WalletTransaction.create({
-      sender_wallet_id: senderWallet.wallet_id,
-      receiver_wallet_id: recipientWallet.wallet_id,
-      amount,
-      transaction_type: 'transfer',
-      status: 'completed',
-      notes,
-      transaction_date: new Date()
-    }, { transaction });
-    
-    // Commit transaction
-    await transaction.commit();
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Transfer completed successfully',
-      transactionDetails: {
-        amount,
-        recipient: recipientWallet.wallet_id_name,
-        date: new Date()
-      }
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error transferring money:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to transfer money' 
-    });
-  }
-};
+    // Set wallet as verified
+    await wallet.update({ is_verified: true });
 
-// Top up wallet
-exports.topUpWallet = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  
-  try {
-    const userId = req.user.id;
-    const { amount } = req.body;
-    
-    if (!amount || amount <= 0) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Valid amount is required' 
-      });
-    }
-    
-    // Get user's wallet
-    const wallet = await DemoWallet.findOne({
-      where: { user_id: userId },
-      transaction
-    });
-    
-    if (!wallet) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
-    
-    // Update wallet balance
-    await DemoWallet.update({
-      wallet_balance: sequelize.literal(`wallet_balance + ${amount}`),
-      updated_at: new Date()
-    }, {
-      where: { wallet_id: wallet.wallet_id },
-      transaction
-    });
-    
-    // Create transaction record
+    // For demo, also mark KYC documents as verified
+    await KycDocument.update(
+      { is_verified: true },
+      { where: { user_id: req.user.user_id } }
+    );
+
+    // Add initial bonus amount (optional)
+    await wallet.update({ wallet_balance: 100.0 }); // Welcome bonus
+
+    // Record the bonus transaction
     await WalletTransaction.create({
       receiver_wallet_id: wallet.wallet_id,
-      amount,
+      amount: 100.0,
       transaction_type: 'deposit',
       status: 'completed',
-      notes: 'Wallet top-up',
-      transaction_date: new Date()
-    }, { transaction });
-    
-    // Commit transaction
-    await transaction.commit();
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Wallet topped up successfully',
-      newBalance: parseFloat(wallet.wallet_balance) + parseFloat(amount)
+      notes: 'Welcome bonus',
     });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error topping up wallet:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to top up wallet' 
-    });
-  }
-};
 
-// Withdraw from wallet
-exports.withdrawMoney = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  
-  try {
-    const userId = req.user.id;
-    const { amount, pin } = req.body;
-    
-    if (!amount || !pin) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Amount and PIN are required' 
-      });
-    }
-    
-    // Validate amount
-    if (amount <= 0) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Amount must be greater than zero' 
-      });
-    }
-    
-    // Verify PIN
-    const userSecurity = await UserSecurity.findOne({
-      where: { user_id: userId }
-    });
-    
-    if (!userSecurity || !userSecurity.security_pin) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Security PIN not set' 
-      });
-    }
-    
-    const isPinValid = await bcrypt.compare(pin, userSecurity.security_pin);
-    
-    if (!isPinValid) {
-      await transaction.rollback();
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid PIN' 
-      });
-    }
-    
-    // Get user's wallet
-    const wallet = await DemoWallet.findOne({
-      where: { user_id: userId },
-      transaction
-    });
-    
-    if (!wallet) {
-      await transaction.rollback();
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
-    
-    // Check sufficient balance
-    if (parseFloat(wallet.wallet_balance) < parseFloat(amount)) {
-      await transaction.rollback();
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Insufficient balance' 
-      });
-    }
-    
-    // Update wallet balance
-    await DemoWallet.update({
-      wallet_balance: sequelize.literal(`wallet_balance - ${amount}`),
-      updated_at: new Date()
-    }, {
-      where: { wallet_id: wallet.wallet_id },
-      transaction
-    });
-    
-    // Create transaction record
-    await WalletTransaction.create({
-      sender_wallet_id: wallet.wallet_id,
-      amount,
-      transaction_type: 'withdrawal',
-      status: 'completed',
-      notes: 'Wallet withdrawal',
-      transaction_date: new Date()
-    }, { transaction });
-    
-    // Commit transaction
-    await transaction.commit();
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Withdrawal completed successfully',
-      newBalance: parseFloat(wallet.wallet_balance) - parseFloat(amount)
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error withdrawing money:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to withdraw money' 
-    });
-  }
-};
-
-// Get transaction history
-exports.getTransactionHistory = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    // Get user's wallet
-    const wallet = await DemoWallet.findOne({
-      where: { user_id: userId }
-    });
-    
-    if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
-    
-    // Get all transactions involving this wallet
-    const transactions = await WalletTransaction.findAll({
-      where: {
-        [sequelize.Op.or]: [
-          { sender_wallet_id: wallet.wallet_id },
-          { receiver_wallet_id: wallet.wallet_id }
-        ]
+    return res.json({
+      message: 'Wallet setup completed successfully',
+      wallet: {
+        wallet_id: wallet.wallet_id,
+        wallet_id_name: wallet.wallet_id_name,
+        balance: wallet.wallet_balance,
+        is_verified: wallet.is_verified,
       },
-      order: [['transaction_date', 'DESC']],
-      include: [
-        {
-          model: DemoWallet,
-          as: 'sender',
-          include: [{ model: User, attributes: ['full_name'] }]
-        },
-        {
-          model: DemoWallet,
-          as: 'receiver',
-          include: [{ model: User, attributes: ['full_name'] }]
-        }
-      ]
-    });
-    
-    // Format transactions
-    const formattedTransactions = transactions.map(tx => {
-      const isSender = tx.sender_wallet_id === wallet.wallet_id;
-      const otherParty = isSender 
-        ? (tx.receiver?.User?.full_name || tx.receiver?.wallet_id_name || 'Unknown') 
-        : (tx.sender?.User?.full_name || tx.sender?.wallet_id_name || 'Unknown');
-      
-      return {
-        id: tx.wallet_tx_id,
-        date: tx.transaction_date,
-        amount: parseFloat(tx.amount),
-        type: tx.transaction_type,
-        isExpense: isSender,
-        otherParty,
-        notes: tx.notes,
-        status: tx.status
-      };
-    });
-    
-    // Calculate summary
-    const income = formattedTransactions
-      .filter(tx => !tx.isExpense)
-      .reduce((sum, tx) => sum + tx.amount, 0);
-      
-    const expense = formattedTransactions
-      .filter(tx => tx.isExpense)
-      .reduce((sum, tx) => sum + tx.amount, 0);
-    
-    return res.status(200).json({
-      success: true,
-      balance: parseFloat(wallet.wallet_balance),
-      income,
-      expense,
-      transactions: formattedTransactions
     });
   } catch (error) {
-    console.error('Error getting transaction history:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get transaction history' 
-    });
+    console.error('Error finalizing wallet setup:', error);
+    return res.status(500).json({ error: 'Failed to finalize wallet setup' });
   }
 };
 
-const getWalletBalance = async (req, res) => {
-  try {
-    // Retrieve the user_id from request params or query (depending on your API design)
-    const { user_id } = req.params;
-
-    // Find the wallet by user_id
-    const wallet = await DemoWallet.findOne({
-      where: { user_id: user_id },
-    });
-
-    // If the wallet is not found, send an error response
-    if (!wallet) {
-      return res.status(404).json({ message: 'Wallet not found for the given user.' });
-    }
-
-    // Send the wallet balance as a response
-    return res.status(200).json({
-      wallet_balance: wallet.wallet_balance,
-    });
-  } catch (error) {
-    console.error('Error fetching wallet balance:', error);
-    return res.status(500).json({ message: 'Server error, please try again later.' });
-  }
-};
-
-// Export functions for external usage
 module.exports = {
-  sendOTP,
-  verifyOTP,
-  savePersonalInfo,
-  createWalletId,
-  setWalletPin,
-  getWalletDetails,
-  transferMoney,
-  topUpWallet,
-  withdrawMoney,
+  getWalletBalance,
+  checkWallet,
   getTransactionHistory,
-  getWalletBalance
+  initWalletRegistration,
+  verifyMobile,
+  updateProfile,
+  setUpiId,
+  uploadKyc,
+  finalizeWalletSetup,
 };

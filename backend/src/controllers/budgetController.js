@@ -1,4 +1,3 @@
-
 // controllers/budgetController.js
 const { BudgetCategory, BudgetAllocation, Transaction, sequelize } = require('../models');
 const { Op } = require('sequelize');

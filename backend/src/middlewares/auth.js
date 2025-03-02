@@ -6,15 +6,10 @@ const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication token is required'
-      });
-    }
+    // Extract token from the Authorization header
+    const token = authHeader?.split(' ')[1];
     
-    const token = authHeader.split(' ')[1];
-    
+    // If token is not provided
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -22,10 +17,13 @@ const authenticate = async (req, res, next) => {
       });
     }
     
+    // Verify the token
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
+    // Check if user exists
     const user = await User.findByPk(decoded.userId);
     
+    // If user not found
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -33,10 +31,12 @@ const authenticate = async (req, res, next) => {
       });
     }
     
+    // Attach user to the request object
     req.user = user;
     next();
     
   } catch (error) {
+    // Handle token errors
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
@@ -51,6 +51,7 @@ const authenticate = async (req, res, next) => {
       });
     }
     
+    // General error handler
     console.error('Authentication error:', error);
     res.status(500).json({
       success: false,

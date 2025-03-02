@@ -1,36 +1,33 @@
 const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const authenticateUser = require('../middlewares/auth');
 const walletController = require('../controllers/walletController');
 
-const router = express.Router();
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/kyc-documents/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}_${file.originalname}`);
+  },
+});
+const upload = multer({ storage });
 
-// Send OTP for wallet registration
-router.post('/send-otp', walletController.sendOTP);
-
-// Verify OTP
-router.post('/verify-otp', walletController.verifyOTP);
-
-// Save personal information
-router.post('/save-personal-info', walletController.savePersonalInfo);
-
-// Create wallet ID
-router.post('/create-wallet-id', walletController.createWalletId);
-
-// Set wallet PIN
-router.post('/set-wallet-pin', walletController.setWalletPin);
-
-// Get wallet details
-router.get('/get-wallet-details', walletController.getWalletDetails);
-
-// Transfer money
-router.post('/transfer-money', walletController.transferMoney);
-
-// Top up wallet
-router.post('/top-up-wallet', walletController.topUpWallet);
-
-// Withdraw money
-router.post('/withdraw-money', walletController.withdrawMoney);
-
-// Get transaction history
-router.get('/transaction-history', walletController.getTransactionHistory);
+// Route definitions
+router.get('/check-wallet', walletController.checkWallet);
+router.get('/balance', walletController.getWalletBalance);
+router.get('/transactions', walletController.getTransactionHistory);
+router.post('/init-wallet-registration', walletController.initWalletRegistration);
+router.post('/verify-mobile', walletController.verifyMobile);
+router.post('/update-profile', walletController.updateProfile);
+router.post('/set-upi-id', walletController.setUpiId);
+router.post(
+  '/upload-kyc',
+  upload.fields([{ name: 'identity' }, { name: 'address' }, { name: 'selfie' }]),
+  walletController.uploadKyc
+);
+router.post('/finalize-wallet', walletController.finalizeWalletSetup);
 
 module.exports = router;
